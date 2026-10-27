@@ -144,7 +144,7 @@ function renderReport(report) {
     latestReport = {
       title: 'AI-teamrapport: ' + report.topic,
       date: report.completedAt || new Date().toISOString(),
-      notice: 'Riktiga modell-anrop genomförda via den anslutna backend-servern. Inga handelsorder har lagts.',
+      notice: 'AI-modellen har tagit fram fyra separata rollperspektiv och en slutlig sammanställning via den säkra backend-servern. Inga handelsorder har lagts.',
       steps: labels.map(([key, title]) => ({ title, body: report[key] || report.agents[key] || 'Inget svar returnerades.', note: 'Modellsvar. Kontrollera fakta innan beslut.' }))
     };
   } else {
@@ -204,7 +204,7 @@ runBtn.addEventListener('click', async () => {
   runBtn.disabled = true;
   runBtn.textContent = 'Teamet arbetar…';
   workflowOutput.replaceChildren();
-  showNotice('Skickar uppgiften till backend. Fyra agentroller arbetar sekventiellt; slutresultatet granskas separat.');
+  showNotice('Skickar uppgiften till backend. En modellkörning tar fram fyra rollperspektiv och en kritisk granskning för att minska väntetid och kostnad.');
   try {
     const response = await fetch(backendUrl + '/api/team-run', {
       method: 'POST',
@@ -213,9 +213,9 @@ runBtn.addEventListener('click', async () => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Servern svarade med HTTP ' + response.status);
-    if (data.mode !== 'real-model-calls') throw new Error('Servern bekräftade inte riktiga modell-anrop.');
+    if (data.mode !== 'real-model-run') throw new Error('Servern bekräftade inte en riktig AI-körning.');
     renderReport(data);
-    log('Körde teamgenomgång med riktiga modell-anrop');
+    log('Körde AI-teamgenomgång via backend');
   } catch (error) {
     workflowOutput.replaceChildren();
     showNotice('Riktig AI-körning misslyckades: ' + error.message + ' — ingen mallrapport visas som om den vore ett AI-resultat.');
