@@ -1,0 +1,25 @@
+name: AI Capital Lab quality checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check frontend JavaScript syntax
+        run: node --check app.js
+      - name: Check backend JavaScript syntax
+        run: node --check backend/server.js
+      - name: Validate backend package metadata
+        run: node -e "const p=require('./backend/package.json'); if(!p.scripts.start || !p.dependencies.express) process.exit(1); console.log('Backend package metadata OK')"
