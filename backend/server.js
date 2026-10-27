@@ -62,7 +62,7 @@ async function runTeam(topic) {
           "Returnera ENDAST giltig JSON med strängfälten coordinator, analyst, developer, reviewer och final. Inga markdown-staket.",
           "Utför inga externa åtgärder och påstå inte att arbete har utförts om det bara föreslås."
         ].join("\n"),
-        input: topic,
+        input: `Please return JSON for this task.\n\n${topic}`,
         text: { format: { type: "json_object" } },
         store: false
       })
