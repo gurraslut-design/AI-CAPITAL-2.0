@@ -97,7 +97,7 @@ async function runTeam(topic) {
 
   let report;
   try {
-    const cleanedOutput = outputText.trim().replace(/^```(?:json)?\\s*/i, "").replace(/\\s*```$/, "");
+    const cleanedOutput = outputText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     report = JSON.parse(cleanedOutput);
   } catch (_) {
     const error = new Error("Modellen returnerade ett format som inte kunde läsas. Försök igen.");
