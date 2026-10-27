@@ -59,11 +59,10 @@ async function runTeam(topic) {
           "Developer: praktisk lösning eller implementeringsplan; påstå inte att kod/system har ändrats.",
           "Reviewer: oberoende kritisk granskning av risker, fel, saknade bevis och överdrivna påståenden.",
           "Final: samlad rekommendation som tar hänsyn till reviewer-granskningen.",
-          "Returnera ENDAST giltig JSON med strängfälten coordinator, analyst, developer, reviewer och final. Inga markdown-staket.",
+          "Svara med ett JSON-objekt med strängfälten coordinator, analyst, developer, reviewer och final. Skriv ordet JSON i svaret och använd inga markdown-staket.",
           "Utför inga externa åtgärder och påstå inte att arbete har utförts om det bara föreslås."
         ].join("\n"),
         input: `Please return JSON for this task.\n\n${topic}`,
-        text: { format: { type: "json_object" } },
         store: false
       })
     });
@@ -98,7 +97,8 @@ async function runTeam(topic) {
 
   let report;
   try {
-    report = JSON.parse(outputText);
+    const cleanedOutput = outputText.trim().replace(/^```(?:json)?\\s*/i, "").replace(/\\s*```$/, "");
+    report = JSON.parse(cleanedOutput);
   } catch (_) {
     const error = new Error("Modellen returnerade ett format som inte kunde läsas. Försök igen.");
     error.status = 502;
