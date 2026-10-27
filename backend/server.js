@@ -29,26 +29,54 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-async function askModel({ role, instructions, input }) {
+async function runTeam(topic) {
   if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_MODEL) {
     const error = new Error("Backend saknar OPENAI_API_KEY eller OPENAI_MODEL. Lägg till dem som server-hemligheter hos driftleverantören.");
     error.status = 503;
     throw error;
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL,
-      instructions: `Du är ${role} i AI Capital Lab. ${instructions} Svara på svenska. Var tydlig med fakta, antaganden och osäkerhet. Utför inga externa åtgärder.`,
-      input,
-      store: false
-    })
-  });
+  // One model request produces distinct role perspectives and a final synthesis.
+  // This avoids five serial requests timing out on mobile/free hosting and lowers cost.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL,
+        instructions: [
+          "Du är AI Capital Lab, ett samordnat AI-team. Svara på svenska.",
+          "Analysera uppgiften genom fyra tydligt åtskilda perspektiv: coordinator, analyst, developer och reviewer.",
+          "Coordinator: mål, plan och prioriterat nästa steg.",
+          "Analyst: fakta som är kända, antaganden, osäkerheter och vad som behöver verifieras.",
+          "Developer: praktisk lösning eller implementeringsplan; påstå inte att kod/system har ändrats.",
+          "Reviewer: oberoende kritisk granskning av risker, fel, saknade bevis och överdrivna påståenden.",
+          "Final: samlad rekommendation som tar hänsyn till reviewer-granskningen.",
+          "Returnera ENDAST giltig JSON med strängfälten coordinator, analyst, developer, reviewer och final. Inga markdown-staket.",
+          "Utför inga externa åtgärder och påstå inte att arbete har utförts om det bara föreslås."
+        ].join("\n"),
+        input: topic,
+        text: { format: { type: "json_object" } },
+        store: false
+      })
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error("AI-svaret tog för lång tid. Försök igen senare.");
+      timeoutError.status = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -57,17 +85,34 @@ async function askModel({ role, instructions, input }) {
     throw error;
   }
 
-  const text = data.output_text || (data.output || [])
+  const outputText = data.output_text || (data.output || [])
     .flatMap(item => item.content || [])
     .filter(item => item.type === "output_text")
     .map(item => item.text)
     .join("\n");
-  if (!text.trim()) {
+  if (!outputText.trim()) {
     const error = new Error("Modellen returnerade inget textresultat.");
     error.status = 502;
     throw error;
   }
-  return text.trim();
+
+  let report;
+  try {
+    report = JSON.parse(outputText);
+  } catch (_) {
+    const error = new Error("Modellen returnerade ett format som inte kunde läsas. Försök igen.");
+    error.status = 502;
+    throw error;
+  }
+
+  for (const field of ["coordinator", "analyst", "developer", "reviewer", "final"]) {
+    if (typeof report[field] !== "string" || !report[field].trim()) {
+      const error = new Error("AI-teamet returnerade en ofullständig rapport. Försök igen.");
+      error.status = 502;
+      throw error;
+    }
+  }
+  return report;
 }
 
 app.post("/api/team-run", async (req, res) => {
@@ -77,39 +122,19 @@ app.post("/api/team-run", async (req, res) => {
   }
 
   try {
-    const coordinator = await askModel({
-      role: "Coordinator",
-      instructions: "Gör en konkret plan med mål, delsteg och mätbart resultat. Hitta inte på att arbete redan utförts.",
-      input: topic
-    });
-    const analyst = await askModel({
-      role: "Analyst",
-      instructions: "Analysera Coordinator-planen. Skilj mellan kända fakta, antaganden, vad som måste kontrolleras och mätbara kriterier.",
-      input: `Ursprunglig uppgift:\n${topic}\n\nCoordinator-plan:\n${coordinator}`
-    });
-    const developer = await askModel({
-      role: "Developer",
-      instructions: "Föreslå en praktisk implementerings- eller testplan. Markera uttryckligen vad som inte har utförts och undvik att påstå att kod eller system har ändrats.",
-      input: `Uppgift:\n${topic}\n\nPlan:\n${coordinator}\n\nAnalys:\n${analyst}`
-    });
-    const reviewer = await askModel({
-      role: "Independent Reviewer",
-      instructions: "Granska kritiskt tidigare svar. Leta efter fel, risker, saknade bevis, säkerhetsproblem och överdrivna påståenden. Ge tydligt godkänd/inte godkänd med skäl.",
-      input: `Uppgift:\n${topic}\n\nPlan:\n${coordinator}\n\nAnalys:\n${analyst}\n\nUtvecklarens förslag:\n${developer}`
-    });
-    const final = await askModel({
-      role: "Coordinator",
-      instructions: "Sammanställ teamets svar. Ta med rekommenderat nästa steg, kvarstående osäkerheter och reviewer-invändningar. Påstå inte att föreslagna åtgärder redan utförts.",
-      input: `Uppgift:\n${topic}\n\nPlan:\n${coordinator}\n\nAnalys:\n${analyst}\n\nUtveckling:\n${developer}\n\nOberoende granskning:\n${reviewer}`
-    });
-
+    const report = await runTeam(topic);
     res.json({
-      mode: "real-model-calls",
+      mode: "real-model-run",
       realOrdersEnabled: false,
       completedAt: new Date().toISOString(),
       topic,
-      agents: { coordinator, analyst, developer, reviewer },
-      final
+      agents: {
+        coordinator: report.coordinator,
+        analyst: report.analyst,
+        developer: report.developer,
+        reviewer: report.reviewer
+      },
+      final: report.final
     });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.message || "AI-teamet kunde inte slutföra körningen." });
