@@ -16,3 +16,6 @@ In repository Settings → Pages, select **GitHub Actions** as the deployment so
 
 ## Safety
 This prototype does not connect to exchanges, place orders, or call external AI providers. Never place provider API keys in browser-side files. Real model connections should use a server-side backend with secrets kept server-side. Trading functionality must remain paper/backtest-only unless separately reviewed and deliberately changed.
+
+
+Deployment trigger: GitHub Pages is configured to publish the `main` branch from the repository root. The static app entry point is `index.html`.
