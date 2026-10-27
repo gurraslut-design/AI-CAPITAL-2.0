@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ai-capital-lab-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://gurraslut-design.github.io
