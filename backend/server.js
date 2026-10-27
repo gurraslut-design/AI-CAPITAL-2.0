@@ -4,7 +4,7 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb" }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "https://gurraslut-design.github.io")
   .split(",").map(value => value.trim()).filter(Boolean);
 
 app.use((req, res, next) => {
