@@ -23,15 +23,15 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     service: "AI Capital Lab backend",
-    modelConfigured: Boolean(process.env.OPENAI_API_KEY),
+    modelConfigured: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL),
     mode: "planning-only",
     realOrdersEnabled: false
   });
 });
 
 async function askModel({ role, instructions, input }) {
-  if (!process.env.OPENAI_API_KEY) {
-    const error = new Error("Backend saknar OPENAI_API_KEY. Lägg till nyckeln som en server-hemlighet hos driftleverantören.");
+  if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_MODEL) {
+    const error = new Error("Backend saknar OPENAI_API_KEY eller OPENAI_MODEL. Lägg till dem som server-hemligheter hos driftleverantören.");
     error.status = 503;
     throw error;
   }
@@ -43,7 +43,7 @@ async function askModel({ role, instructions, input }) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5.6",
+      model: process.env.OPENAI_MODEL,
       instructions: `Du är ${role} i AI Capital Lab. ${instructions} Svara på svenska. Var tydlig med fakta, antaganden och osäkerhet. Utför inga externa åtgärder.`,
       input,
       store: false
