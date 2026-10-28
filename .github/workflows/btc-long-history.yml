@@ -53,8 +53,8 @@ jobs:
                               if len(p) < 5: continue
                               try:
                                   t = int(float(p[0]))
-                                  vals = [float(x) for x in p[1:5]]
-                                  if t > 0 and min(vals) > 0:
+                                  vals = [float(x) for x in (p[1:5] if timeframe == "daily" else p[1:6])]
+                                  if t > 0 and min(vals[:4]) > 0 and (timeframe == "daily" or vals[4] >= 0):
                                       target_rows[t] = [t, *vals]
                               except ValueError:
                                   continue
