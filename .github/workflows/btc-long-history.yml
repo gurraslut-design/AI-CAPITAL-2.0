@@ -1,4 +1,5 @@
 name: Long-history BTC strategy research
+# Includes hourly ML walk-forward tests; paper research only.
 on:
   workflow_dispatch:
   push:
