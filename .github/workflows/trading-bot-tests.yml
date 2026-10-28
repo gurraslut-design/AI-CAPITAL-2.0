@@ -19,6 +19,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install research-only machine-learning dependency
+        run: python -m pip install scikit-learn
       - name: Run trading bot unit tests
         run: python -m unittest discover -s tests -v
       - name: Check bot CLI
@@ -203,6 +205,8 @@ jobs:
           finally:
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
           PY
+      - name: Research cost-aware hourly forecast with walk-forward holdouts (paper only)
+        run: python research_cost_aware.py kraken_multi_month.csv
       - name: Compare fee assumptions on identical historical candles (paper only)
         run: |
           python - <<'PY'
