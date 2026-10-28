@@ -99,7 +99,7 @@ def calculate_position_qty(balance, entry, stop, fee):
     return min(qty_for_risk, qty_affordable)
 
 
-def backtest(rows, starting_balance, fee, slippage):
+def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50):
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
     balance = starting_balance
@@ -139,7 +139,7 @@ def backtest(rows, starting_balance, fee, slippage):
         if position is None and not exited_this_candle and fast[signal_i] is not None and slow[signal_i] is not None and rsis[signal_i] is not None:
             prev = signal_i - 1
             crossed_up = prev >= 0 and fast[prev] is not None and slow[prev] is not None and fast[prev] <= slow[prev] and fast[signal_i] > slow[signal_i]
-            if crossed_up and rsis[signal_i] > 50:
+            if crossed_up and rsis[signal_i] > rsi_threshold:
                 entry = row["open"] * (1 + slippage)
                 stop = entry * (1 - STOP_FRACTION)
                 target = entry * (1 + TAKE_PROFIT_FRACTION)
@@ -201,7 +201,7 @@ def backtest(rows, starting_balance, fee, slippage):
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not gross_profit else "infinity"),
         "avg_net_pnl": round(sum(t["net_pnl"] for t in trades) / len(trades), 4) if trades else 0.0,
         "fee_per_side_pct": round(fee * 100, 3), "slippage_pct": round(slippage * 100, 3),
-        "strategy": "Long only; EMA20/EMA50 bullish cross, RSI14 > 50; 1% stop, 2% target; 1% balance risk; one position at a time.",
+        "strategy": f"Long only; EMA{EMA_FAST}/EMA{EMA_SLOW} bullish cross, RSI14 > {rsi_threshold}; 1% stop, 2% target; 1% balance risk; one position at a time.",
         "caveat": "Historical simulation is not a prediction. OHLC candles cannot reveal exact intrabar order; stop is assumed first if stop and target both hit."
     }
     return report, trades
