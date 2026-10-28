@@ -58,7 +58,7 @@ def run(rows, kind, fast, slow, fee, slip, start, end):
         close=rows[i]["close"]
         if prev_close is not None and pos:
             market_ret=close/prev_close-1
-            balance *= max(0.000001,1+market_ret-2*slip)
+            balance *= max(0.000001,1+market_ret)
             peak=max(peak,balance); maxdd=max(maxdd,(peak-balance)/peak)
         target=signal(rows,i-1,kind,fast,slow) if i>0 else 0
         if target!=pos:
