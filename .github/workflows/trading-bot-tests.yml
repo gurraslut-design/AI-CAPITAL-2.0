@@ -76,28 +76,34 @@ jobs:
           try:
               for fast, slow in ((10, 30), (20, 50), (30, 100)):
                   for rsi_min in (50, 55, 60):
-                      bot.EMA_FAST, bot.EMA_SLOW = fast, slow
-                      bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-                      report, _ = bot.backtest(train, 1000.0, 0.002, 0.0, rsi_threshold=rsi_min)
-                      candidates.append({
-                          'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
-                          'train_return_pct': report['total_return_pct'],
-                          'train_profit_factor': report['profit_factor'],
-                          'train_trades': report['trades'],
-                      })
+                      for trend_period in (0, 100, 200):
+                          bot.EMA_FAST, bot.EMA_SLOW = fast, slow
+                          bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
+                          report, _ = bot.backtest(
+                              train, 1000.0, 0.002, 0.0,
+                              rsi_threshold=rsi_min, trend_filter_period=trend_period)
+                          candidates.append({
+                              'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
+                              'trend_filter_period': trend_period,
+                              'train_return_pct': report['total_return_pct'],
+                              'train_profit_factor': report['profit_factor'],
+                              'train_trades': report['trades'],
+                          })
               # Select using training data only; evaluate once on the later holdout.
               best = max(candidates, key=lambda x: x['train_return_pct'])
               bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
               bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-              holdout, _ = bot.backtest(test, 1000.0, 0.002, 0.0, rsi_threshold=best['rsi_min'])
+              holdout, _ = bot.backtest(
+                  test, 1000.0, 0.002, 0.0,
+                  rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'])
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
               baseline, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
               print(json.dumps({
-                  'note': 'Research only; first 60% selects a candidate, last 40% is chronological holdout. No live orders.',
+                  'note': 'Research only; first 60% selects among 27 variants, last 40% is chronological holdout. No live orders.',
                   'candles': {'total': len(rows), 'train': len(train), 'holdout': len(test)},
                   'fee_per_side_pct': 0.2,
                   'baseline_holdout': {
-                      'ema_fast': 20, 'ema_slow': 50,
+                      'ema_fast': 20, 'ema_slow': 50, 'rsi_min': 50, 'trend_filter_period': 0,
                       'return_pct': baseline['total_return_pct'],
                       'final_balance': baseline['final_balance'],
                       'trades': baseline['trades'],
