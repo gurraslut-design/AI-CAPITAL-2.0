@@ -70,7 +70,8 @@ jobs:
 
           rows = bot.read_csv('kraken_multi_month.csv')
           split = int(len(rows) * 0.60)
-          train, test = rows[:split], rows[split:]
+          split2 = int(len(rows) * 0.80)
+          train, validation, final_test = rows[:split], rows[split:split2], rows[split2:]
           original = (bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION)
           candidates = []
           try:
@@ -93,31 +94,47 @@ jobs:
               best = max(candidates, key=lambda x: x['train_return_pct'])
               bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
               bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-              holdout, _ = bot.backtest(
-                  test, 1000.0, 0.002, 0.0,
+              validation_report, _ = bot.backtest(
+                  validation, 1000.0, 0.002, 0.0,
+                  rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'])
+              final_report, _ = bot.backtest(
+                  final_test, 1000.0, 0.002, 0.0,
                   rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'])
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
-              baseline, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
+              baseline_validation, _ = bot.backtest(validation, 1000.0, 0.002, 0.0)
+              baseline_final, _ = bot.backtest(final_test, 1000.0, 0.002, 0.0)
               print(json.dumps({
-                  'note': 'Research only; first 60% selects among 27 variants, last 40% is chronological holdout. No live orders.',
-                  'candles': {'total': len(rows), 'train': len(train), 'holdout': len(test)},
+                  'note': 'Research only; first 60% selects among 27 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
+                  'candles': {'total': len(rows), 'train': len(train), 'validation': len(validation), 'final_test': len(final_test)},
                   'fee_per_side_pct': 0.2,
                   'baseline_holdout': {
                       'ema_fast': 20, 'ema_slow': 50, 'rsi_min': 50, 'trend_filter_period': 0,
-                      'return_pct': baseline['total_return_pct'],
-                      'final_balance': baseline['final_balance'],
-                      'trades': baseline['trades'],
-                      'profit_factor': baseline['profit_factor'],
-                      'max_drawdown_pct': baseline['max_drawdown_pct'],
+                      'validation_return_pct': baseline_validation['total_return_pct'],
+                      'validation_final_balance': baseline_validation['final_balance'],
+                      'validation_trades': baseline_validation['trades'],
+                      'validation_profit_factor': baseline_validation['profit_factor'],
+                      'validation_max_drawdown_pct': baseline_validation['max_drawdown_pct'],
+                      'final_test_return_pct': baseline_final['total_return_pct'],
+                      'final_test_final_balance': baseline_final['final_balance'],
+                      'final_test_trades': baseline_final['trades'],
+                      'final_test_profit_factor': baseline_final['profit_factor'],
+                      'final_test_max_drawdown_pct': baseline_final['max_drawdown_pct'],
                   },
                   'training_candidates': candidates,
                   'selected_on_train_only': best,
-                  'selected_candidate_holdout': {
-                      'return_pct': holdout['total_return_pct'],
-                      'final_balance': holdout['final_balance'],
-                      'trades': holdout['trades'],
-                      'profit_factor': holdout['profit_factor'],
-                      'max_drawdown_pct': holdout['max_drawdown_pct'],
+                  'selected_candidate_validation': {
+                      'return_pct': validation_report['total_return_pct'],
+                      'final_balance': validation_report['final_balance'],
+                      'trades': validation_report['trades'],
+                      'profit_factor': validation_report['profit_factor'],
+                      'max_drawdown_pct': validation_report['max_drawdown_pct'],
+                  },
+                  'selected_candidate_final_test': {
+                      'return_pct': final_report['total_return_pct'],
+                      'final_balance': final_report['final_balance'],
+                      'trades': final_report['trades'],
+                      'profit_factor': final_report['profit_factor'],
+                      'max_drawdown_pct': final_report['max_drawdown_pct'],
                   },
               }, indent=2))
           finally:
