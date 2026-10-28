@@ -74,46 +74,51 @@ jobs:
           train, validation, final_test = rows[:split], rows[split:split2], rows[split2:]
           original = (bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION)
           candidates = []
+          research_fee = 0.008  # Kraken Pro Tier 1 taker fee assumption per side; conservative
           try:
               for entry_mode in ("cross", "pullback", "breakout"):
                   for fast, slow in ((10, 30), (20, 50), (30, 100)):
                       for rsi_min in (50, 55, 60):
                           for trend_period in (0, 100, 200):
-                              bot.EMA_FAST, bot.EMA_SLOW = fast, slow
-                              bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-                              report, _ = bot.backtest(
-                                  train, 1000.0, 0.002, 0.0,
-                                  rsi_threshold=rsi_min, trend_filter_period=trend_period,
-                                  entry_mode=entry_mode)
-                              candidates.append({
-                                  'entry_mode': entry_mode,
-                                  'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
-                                  'trend_filter_period': trend_period,
-                                  'train_return_pct': report['total_return_pct'],
-                                  'train_profit_factor': report['profit_factor'],
-                                  'train_trades': report['trades'],
-                              })
-              # Choose on training data only; later periods are not used for selection.
+                              for stop_fraction in (0.01, 0.02):
+                                  for target_fraction in (0.03, 0.04, 0.06):
+                                      bot.EMA_FAST, bot.EMA_SLOW = fast, slow
+                                      bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = stop_fraction, target_fraction
+                                      report, _ = bot.backtest(
+                                          train, 1000.0, research_fee, 0.0,
+                                          rsi_threshold=rsi_min, trend_filter_period=trend_period,
+                                          entry_mode=entry_mode)
+                                      candidates.append({
+                                          'entry_mode': entry_mode,
+                                          'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
+                                          'trend_filter_period': trend_period,
+                                          'stop_pct': round(stop_fraction * 100, 2),
+                                          'target_pct': round(target_fraction * 100, 2),
+                                          'train_return_pct': report['total_return_pct'],
+                                          'train_profit_factor': report['profit_factor'],
+                                          'train_trades': report['trades'],
+                                      })
+              # Select only on first 60%; validation and final test remain unseen during selection.
               best = max(candidates, key=lambda x: x['train_return_pct'])
               bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
-              bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
+              bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = best['stop_pct'] / 100, best['target_pct'] / 100
               validation_report, _ = bot.backtest(
-                  validation, 1000.0, 0.002, 0.0,
+                  validation, 1000.0, research_fee, 0.0,
                   rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'],
                   entry_mode=best['entry_mode'])
               final_report, _ = bot.backtest(
-                  final_test, 1000.0, 0.002, 0.0,
+                  final_test, 1000.0, research_fee, 0.0,
                   rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'],
                   entry_mode=best['entry_mode'])
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
-              baseline_validation, _ = bot.backtest(validation, 1000.0, 0.002, 0.0)
-              baseline_final, _ = bot.backtest(final_test, 1000.0, 0.002, 0.0)
+              baseline_validation, _ = bot.backtest(validation, 1000.0, research_fee, 0.0)
+              baseline_final, _ = bot.backtest(final_test, 1000.0, research_fee, 0.0)
               print(json.dumps({
-                  'note': 'Research only; first 60% selects among 81 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
+                  'note': 'Research only; first 60% selects among 486 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
                   'candles': {'total': len(rows), 'train': len(train), 'validation': len(validation), 'final_test': len(final_test)},
-                  'fee_per_side_pct': 0.2,
+                  'fee_per_side_pct': 0.8,
                   'baseline_holdout': {
-                      'ema_fast': 20, 'ema_slow': 50, 'rsi_min': 50, 'trend_filter_period': 0,
+                      'ema_fast': 20, 'ema_slow': 50, 'rsi_min': 50, 'trend_filter_period': 0, 'stop_pct': 1.0, 'target_pct': 2.0,
                       'validation_return_pct': baseline_validation['total_return_pct'],
                       'validation_final_balance': baseline_validation['final_balance'],
                       'validation_trades': baseline_validation['trades'],
