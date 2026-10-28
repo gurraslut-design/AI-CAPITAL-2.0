@@ -99,7 +99,9 @@ def calculate_position_qty(balance, entry, stop, fee):
     return min(qty_for_risk, qty_affordable)
 
 
-def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filter_period=0):
+def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filter_period=0, entry_mode="cross"):
+    if entry_mode not in ("cross", "pullback"):
+        raise ValueError("entry_mode must be cross or pullback")
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
     trend = ema(closes, trend_filter_period) if trend_filter_period > 0 else None
@@ -140,8 +142,12 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filt
         if position is None and not exited_this_candle and fast[signal_i] is not None and slow[signal_i] is not None and rsis[signal_i] is not None:
             prev = signal_i - 1
             crossed_up = prev >= 0 and fast[prev] is not None and slow[prev] is not None and fast[prev] <= slow[prev] and fast[signal_i] > slow[signal_i]
+            pulled_back = (prev >= 0 and fast[prev] is not None and slow[signal_i] is not None
+                           and closes[prev] <= fast[prev] and closes[signal_i] > fast[signal_i]
+                           and fast[signal_i] > slow[signal_i])
+            entry_signal = crossed_up if entry_mode == "cross" else pulled_back
             trend_ok = trend_filter_period <= 0 or (trend[signal_i] is not None and closes[signal_i] > trend[signal_i])
-            if crossed_up and rsis[signal_i] > rsi_threshold and trend_ok:
+            if entry_signal and rsis[signal_i] > rsi_threshold and trend_ok:
                 entry = row["open"] * (1 + slippage)
                 stop = entry * (1 - STOP_FRACTION)
                 target = entry * (1 + TAKE_PROFIT_FRACTION)
@@ -203,7 +209,7 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filt
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not gross_profit else "infinity"),
         "avg_net_pnl": round(sum(t["net_pnl"] for t in trades) / len(trades), 4) if trades else 0.0,
         "fee_per_side_pct": round(fee * 100, 3), "slippage_pct": round(slippage * 100, 3),
-        "strategy": f"Long only; EMA{EMA_FAST}/EMA{EMA_SLOW} bullish cross, RSI14 > {rsi_threshold}; trend filter period {trend_filter_period}; 1% stop, 2% target; 1% balance risk; one position at a time.",
+        "strategy": f"Long only; {entry_mode} entry with EMA{EMA_FAST}/EMA{EMA_SLOW}, RSI14 > {rsi_threshold}; trend filter period {trend_filter_period}; 1% stop, 2% target; 1% balance risk; one position at a time.",
         "caveat": "Historical simulation is not a prediction. OHLC candles cannot reveal exact intrabar order; stop is assumed first if stop and target both hit."
     }
     return report, trades
