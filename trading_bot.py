@@ -134,7 +134,7 @@ def backtest(rows, starting_balance, fee, slippage):
                 qty = min(qty, balance / (entry * (1 + fee)))
                 entry_fee = entry * qty * fee
                 if qty > 0 and entry * qty + entry_fee <= balance:
-                    balance -= entry_fee
+                    balance -= entry * qty + entry_fee
                     fees_total += entry_fee
                     position = {"entry": entry, "stop": stop, "target": target, "qty": qty,
                                 "entry_fee": entry_fee, "time": row["time"]}
