@@ -75,7 +75,7 @@ jobs:
           original = (bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION)
           candidates = []
           try:
-              for entry_mode in ("cross", "pullback"):
+              for entry_mode in ("cross", "pullback", "breakout"):
                   for fast, slow in ((10, 30), (20, 50), (30, 100)):
                       for rsi_min in (50, 55, 60):
                           for trend_period in (0, 100, 200):
@@ -109,7 +109,7 @@ jobs:
               baseline_validation, _ = bot.backtest(validation, 1000.0, 0.002, 0.0)
               baseline_final, _ = bot.backtest(final_test, 1000.0, 0.002, 0.0)
               print(json.dumps({
-                  'note': 'Research only; first 60% selects among 54 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
+                  'note': 'Research only; first 60% selects among 81 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
                   'candles': {'total': len(rows), 'train': len(train), 'validation': len(validation), 'final_test': len(final_test)},
                   'fee_per_side_pct': 0.2,
                   'baseline_holdout': {
