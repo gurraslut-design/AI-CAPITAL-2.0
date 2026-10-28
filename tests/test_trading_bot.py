@@ -21,6 +21,14 @@ class TradingBotTests(unittest.TestCase):
         self.assertTrue(all(v is None or 0 <= v <= 100 for v in result))
         self.assertEqual(result[-1], 100.0)
 
+    def test_position_size_includes_both_sides_of_fees_in_risk(self):
+        balance, entry, fee = 1000.0, 100.0, 0.008
+        stop = entry * (1 - bot.STOP_FRACTION)
+        qty = bot.calculate_position_qty(balance, entry, stop, fee)
+        modeled_stop_loss = qty * ((entry - stop) + entry * fee + stop * fee)
+        self.assertLessEqual(modeled_stop_loss, balance * bot.RISK_FRACTION + 1e-9)
+        self.assertLessEqual(qty * entry * (1 + fee), balance + 1e-9)
+
     def test_backtest_returns_metrics_and_never_negative_fees(self):
         # Deterministic synthetic candles; this is a mechanics test, not a profitability claim.
         rows = []
