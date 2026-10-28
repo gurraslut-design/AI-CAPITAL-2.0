@@ -100,8 +100,8 @@ def calculate_position_qty(balance, entry, stop, fee):
 
 
 def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filter_period=0, entry_mode="cross"):
-    if entry_mode not in ("cross", "pullback"):
-        raise ValueError("entry_mode must be cross or pullback")
+    if entry_mode not in ("cross", "pullback", "breakout"):
+        raise ValueError("entry_mode must be cross, pullback, or breakout")
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
     trend = ema(closes, trend_filter_period) if trend_filter_period > 0 else None
@@ -145,7 +145,16 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filt
             pulled_back = (prev >= 0 and fast[prev] is not None and slow[signal_i] is not None
                            and closes[prev] <= fast[prev] and closes[signal_i] > fast[signal_i]
                            and fast[signal_i] > slow[signal_i])
-            entry_signal = crossed_up if entry_mode == "cross" else pulled_back
+            if entry_mode == "cross":
+                entry_signal = crossed_up
+            elif entry_mode == "pullback":
+                entry_signal = pulled_back
+            else:
+                # Compare with highs from prior candles only; do not include the signal candle.
+                lookback_start = max(0, signal_i - 20)
+                prior_highs = [rows[j]["high"] for j in range(lookback_start, signal_i)]
+                entry_signal = (len(prior_highs) == 20 and closes[signal_i] > max(prior_highs)
+                                and fast[signal_i] > slow[signal_i])
             trend_ok = trend_filter_period <= 0 or (trend[signal_i] is not None and closes[signal_i] > trend[signal_i])
             if entry_signal and rsis[signal_i] > rsi_threshold and trend_ok:
                 entry = row["open"] * (1 + slippage)
