@@ -21,25 +21,46 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check bot CLI
         run: python trading_bot.py --help
-      - name: Test Kraken public market-data connection and save candles
+      - name: Download official Kraken quarterly historical candles
+        run: |
+          curl -fL --retry 3 -o kraken_2026Q2.zip https://assets.kraken.com/marketing/institutions/Kraken_OHLCVT_2026Q2.zip
+          curl -fL --retry 3 -o kraken_2026Q3.zip https://assets.kraken.com/marketing/institutions/Kraken_OHLCVT_2026Q3.zip
+      - name: Prepare multi-month XBTUSDT 5-minute dataset
         run: |
           python - <<'PY'
-          import csv, json, urllib.parse, urllib.request
-          url = 'https://api.kraken.com/0/public/OHLC?' + urllib.parse.urlencode({'pair':'XBTUSDT','interval':5})
-          req = urllib.request.Request(url, headers={'User-Agent':'AI-Capital-Lab-paper/1.0'})
-          with urllib.request.urlopen(req, timeout=20) as response:
-              data = json.loads(response.read().decode('utf-8'))
-          if data.get('error'):
-              raise SystemExit('Kraken API error: ' + '; '.join(data['error']))
-          result = data['result']
-          key = next(k for k in result if k != 'last')
-          candles = result[key]
-          with open('kraken_recent.csv','w',newline='',encoding='utf-8') as f:
+          import csv, io, zipfile
+          from pathlib import Path
+          archives = ['kraken_2026Q2.zip', 'kraken_2026Q3.zip']
+          rows = {}
+          matched = []
+          for archive in archives:
+              with zipfile.ZipFile(archive) as zf:
+                  names = [n for n in zf.namelist() if Path(n).name.upper() == 'XBTUSDT_5.CSV']
+                  if not names:
+                      raise SystemExit(f'XBTUSDT_5.csv not found in {archive}; sample files: {zf.namelist()[:20]}')
+                  for name in names:
+                      matched.append((archive, name))
+                      with zf.open(name) as raw:
+                          for line in io.TextIOWrapper(raw, encoding='utf-8-sig'):
+                              parts = line.strip().split(',')
+                              if len(parts) < 6:
+                                  continue
+                              try:
+                                  timestamp = int(float(parts[0]))
+                                  values = [float(parts[i]) for i in range(1, 6)]
+                                  if timestamp > 0 and all(v > 0 for v in values[:4]):
+                                      rows[timestamp] = [timestamp, *values[:5]]
+                              except (ValueError, IndexError):
+                                  continue
+          ordered = [rows[t] for t in sorted(rows)]
+          if len(ordered) < 1000:
+              raise SystemExit(f'Not enough historical candles: {len(ordered)}')
+          with open('kraken_multi_month.csv', 'w', newline='', encoding='utf-8') as f:
               writer = csv.writer(f)
               writer.writerow(['time','open','high','low','close','volume'])
-              for c in candles:
-                  writer.writerow([c[0],c[1],c[2],c[3],c[4],c[6]])
-          print(f'Kraken OK: received {len(candles)} five-minute candles for {key}.')
+              writer.writerows([[r[0],r[1],r[2],r[3],r[4],r[5]] for r in ordered])
+          print(f'Prepared {len(ordered)} XBTUSDT 5-minute candles from {ordered[0][0]} to {ordered[-1][0]} UTC.')
+          print('Source files: ' + ', '.join(f'{a}:{n}' for a,n in matched))
           PY
-      - name: Run short-window historical backtest (paper only)
-        run: python trading_bot.py BACKTEST --csv kraken_recent.csv --balance 1000 --fee 0.008 --slippage 0
+      - name: Run multi-month historical backtest (paper only)
+        run: python trading_bot.py BACKTEST --csv kraken_multi_month.csv --balance 1000 --fee 0.008 --slippage 0
