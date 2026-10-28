@@ -99,9 +99,10 @@ def calculate_position_qty(balance, entry, stop, fee):
     return min(qty_for_risk, qty_affordable)
 
 
-def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50):
+def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filter_period=0):
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
+    trend = ema(closes, trend_filter_period) if trend_filter_period > 0 else None
     balance = starting_balance
     equity_peak = balance
     max_dd = 0.0
@@ -139,7 +140,8 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50):
         if position is None and not exited_this_candle and fast[signal_i] is not None and slow[signal_i] is not None and rsis[signal_i] is not None:
             prev = signal_i - 1
             crossed_up = prev >= 0 and fast[prev] is not None and slow[prev] is not None and fast[prev] <= slow[prev] and fast[signal_i] > slow[signal_i]
-            if crossed_up and rsis[signal_i] > rsi_threshold:
+            trend_ok = trend_filter_period <= 0 or (trend[signal_i] is not None and closes[signal_i] > trend[signal_i])
+            if crossed_up and rsis[signal_i] > rsi_threshold and trend_ok:
                 entry = row["open"] * (1 + slippage)
                 stop = entry * (1 - STOP_FRACTION)
                 target = entry * (1 + TAKE_PROFIT_FRACTION)
@@ -201,7 +203,7 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50):
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not gross_profit else "infinity"),
         "avg_net_pnl": round(sum(t["net_pnl"] for t in trades) / len(trades), 4) if trades else 0.0,
         "fee_per_side_pct": round(fee * 100, 3), "slippage_pct": round(slippage * 100, 3),
-        "strategy": f"Long only; EMA{EMA_FAST}/EMA{EMA_SLOW} bullish cross, RSI14 > {rsi_threshold}; 1% stop, 2% target; 1% balance risk; one position at a time.",
+        "strategy": f"Long only; EMA{EMA_FAST}/EMA{EMA_SLOW} bullish cross, RSI14 > {rsi_threshold}; trend filter period {trend_filter_period}; 1% stop, 2% target; 1% balance risk; one position at a time.",
         "caveat": "Historical simulation is not a prediction. OHLC candles cannot reveal exact intrabar order; stop is assumed first if stop and target both hit."
     }
     return report, trades
@@ -247,6 +249,8 @@ def main():
     parser.add_argument("--balance", type=float, default=STARTING_BALANCE, help="Starting balance in quote currency (default 1000)")
     parser.add_argument("--fee", type=float, default=FEE_PER_SIDE, help="Fee per side as decimal; default 0.008 = 0.8%%")
     parser.add_argument("--slippage", type=float, default=SLIPPAGE, help="Slippage as decimal; default 0")
+    parser.add_argument("--rsi-threshold", type=float, default=50, help="Minimum RSI threshold for backtest entries")
+    parser.add_argument("--trend-filter", type=int, default=0, help="Optional EMA trend filter period; 0 disables it")
     args = parser.parse_args()
     if args.balance <= 0 or not 0 <= args.fee < 0.1 or not 0 <= args.slippage < 0.1:
         parser.error("balance must be >0; fee and slippage must be between 0 and 0.1.")
@@ -254,7 +258,7 @@ def main():
         if args.MODE == "BACKTEST":
             if not args.csv:
                 parser.error("BACKTEST requires --csv path/to/candles.csv")
-            report, trades = backtest(read_csv(Path(args.csv)), args.balance, args.fee, args.slippage)
+            report, trades = backtest(read_csv(Path(args.csv)), args.balance, args.fee, args.slippage, args.rsi_threshold, args.trend_filter)
             print(json.dumps({"report": report, "trades_detail": trades}, ensure_ascii=False, indent=2))
         else:
             print(json.dumps(paper(fetch_kraken(), args.fee), ensure_ascii=False, indent=2))
