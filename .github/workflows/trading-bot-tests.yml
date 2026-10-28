@@ -104,9 +104,10 @@ jobs:
                   split2 = int(len(rows) * 0.80)
                   train, validation, final_test = rows[:split], rows[split:split2], rows[split2:]
                   split_data[timeframe] = (train, validation, final_test)
-                  for entry_mode in ("cross", "pullback", "breakout"):
+                  for entry_mode in ("cross", "pullback", "breakout", "rsi_rebound", "ema_reclaim"):
                       for fast, slow in ((10, 30), (20, 50), (30, 100)):
-                          for rsi_min in (50, 55, 60):
+                          thresholds = (25, 30, 35) if entry_mode == "rsi_rebound" else ((45, 50, 55) if entry_mode == "ema_reclaim" else (50, 55, 60))
+                          for rsi_min in thresholds:
                               for trend_period in (0, 100, 200):
                                   for stop_fraction in (0.01, 0.02):
                                       for target_fraction in (0.03, 0.04, 0.06):
@@ -166,7 +167,7 @@ jobs:
                   and final_report['trades'] >= 20
               )
               print(json.dumps({
-                  'note': 'Research only; selects among 1458 variants on first 60% of each of 5m/15m/1h datasets; next 20% validates and final 20% is untouched chronological test. Stress test adds 0.1% adverse slippage per side. No live orders.',
+                  'note': 'Research only; selects among 2430 variants on first 60% of each of 5m/15m/1h datasets; next 20% validates and final 20% is untouched chronological test. Stress test adds 0.1% adverse slippage per side. No live orders.',
                   'candles': {tf: {'total': len(rows), 'train': len(split_data[tf][0]), 'validation': len(split_data[tf][1]), 'final_test': len(split_data[tf][2])} for tf, rows in datasets.items()},
                   'fee_per_side_pct': 0.8,
                   'baseline_5m_holdout': {
