@@ -62,5 +62,27 @@ jobs:
           print(f'Prepared {len(ordered)} XBTUSDT 5-minute candles from {ordered[0][0]} to {ordered[-1][0]} UTC.')
           print('Source files: ' + ', '.join(f'{a}:{n}' for a,n in matched))
           PY
-      - name: Run multi-month historical backtest (paper only)
-        run: python trading_bot.py BACKTEST --csv kraken_multi_month.csv --balance 1000 --fee 0.008 --slippage 0
+      - name: Compare fee assumptions on identical historical candles (paper only)
+        run: |
+          python - <<'PY'
+          import json
+          import trading_bot
+          rows = trading_bot.read_csv('kraken_multi_month.csv')
+          results = []
+          for fee in (0.008, 0.004, 0.002, 0.001):
+              report, _ = trading_bot.backtest(rows, 1000.0, fee, 0.0)
+              results.append({
+                  'fee_per_side_pct': report['fee_per_side_pct'],
+                  'final_balance': report['final_balance'],
+                  'return_pct': report['total_return_pct'],
+                  'trades': report['trades'],
+                  'win_rate_pct': report['win_rate_pct'],
+                  'fees_total': report['fees_total'],
+                  'max_drawdown_pct': report['max_drawdown_pct'],
+                  'profit_factor': report['profit_factor'],
+              })
+          print(json.dumps({
+              'note': 'Sensitivity analysis only; identical strategy and candles, not a parameter optimization or profit guarantee.',
+              'results': results,
+          }, indent=2))
+          PY
