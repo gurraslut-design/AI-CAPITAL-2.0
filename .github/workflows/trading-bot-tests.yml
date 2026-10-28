@@ -62,6 +62,66 @@ jobs:
           print(f'Prepared {len(ordered)} XBTUSDT 5-minute candles from {ordered[0][0]} to {ordered[-1][0]} UTC.')
           print('Source files: ' + ', '.join(f'{a}:{n}' for a,n in matched))
           PY
+      - name: Research strategy variants with chronological holdout (paper only)
+        run: |
+          python - <<'PY'
+          import json
+          import trading_bot as bot
+
+          rows = bot.read_csv('kraken_multi_month.csv')
+          split = int(len(rows) * 0.60)
+          train, test = rows[:split], rows[split:]
+          original = (bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION)
+          candidates = []
+          try:
+              for fast, slow in ((10, 30), (20, 50), (30, 100)):
+                  for rsi_min in (50, 55, 60):
+                      bot.EMA_FAST, bot.EMA_SLOW = fast, slow
+                      bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
+                      # Existing backtest uses RSI > 50. For higher thresholds,
+                      # use a wrapper that rejects entries unless the RSI condition is met.
+                      # Keep the initial sweep comparable by testing only implemented settings.
+                      if rsi_min != 50:
+                          continue
+                      report, _ = bot.backtest(train, 1000.0, 0.002, 0.0)
+                      candidates.append({
+                          'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
+                          'train_return_pct': report['total_return_pct'],
+                          'train_profit_factor': report['profit_factor'],
+                          'train_trades': report['trades'],
+                      })
+              # Select using training data only; evaluate once on the later holdout.
+              best = max(candidates, key=lambda x: x['train_return_pct'])
+              bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
+              bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
+              holdout, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
+              bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
+              baseline, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
+              print(json.dumps({
+                  'note': 'Research only; first 60% selects a candidate, last 40% is chronological holdout. No live orders.',
+                  'candles': {'total': len(rows), 'train': len(train), 'holdout': len(test)},
+                  'fee_per_side_pct': 0.2,
+                  'baseline_holdout': {
+                      'ema_fast': 20, 'ema_slow': 50,
+                      'return_pct': baseline['total_return_pct'],
+                      'final_balance': baseline['final_balance'],
+                      'trades': baseline['trades'],
+                      'profit_factor': baseline['profit_factor'],
+                      'max_drawdown_pct': baseline['max_drawdown_pct'],
+                  },
+                  'training_candidates': candidates,
+                  'selected_on_train_only': best,
+                  'selected_candidate_holdout': {
+                      'return_pct': holdout['total_return_pct'],
+                      'final_balance': holdout['final_balance'],
+                      'trades': holdout['trades'],
+                      'profit_factor': holdout['profit_factor'],
+                      'max_drawdown_pct': holdout['max_drawdown_pct'],
+                  },
+              }, indent=2))
+          finally:
+              bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
+          PY
       - name: Compare fee assumptions on identical historical candles (paper only)
         run: |
           python - <<'PY'
