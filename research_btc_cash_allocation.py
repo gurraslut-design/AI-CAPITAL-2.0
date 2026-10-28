@@ -21,7 +21,7 @@ def daily(rows):
  out=[]
  for day,x in sorted(g.items()):
   x.sort(key=lambda z:z["time"])
-  if len(x)==288 and all(x[i+1]["time"]-x[i]["time"]==300 for i in range(287)):
+  if len(x)>=200 and (x[-1]["time"]-x[0]["time"])>=18*3600:
    out.append({"time":day*86400,"close":x[-1]["close"]})
  return out
 
