@@ -114,8 +114,8 @@ def main():
             reports.append({"fee_per_side_pct":fee*100,"slippage_per_side_pct":.1,
                 "threshold_round_trip_cost_multiple":multiplier,"forecast_threshold_pct":round(threshold*100,3),
                 "strategy":strat,"buy_hold":bh,"cash":cash,
-                "beats_buy_hold":strat["return_pct"]>bh["return_pct"],
-                "beats_cash":strat["return_pct"]>0})
+                "beats_buy_hold":bool(strat["return_pct"]>bh["return_pct"]),
+                "beats_cash":bool(strat["return_pct"]>0)})
     passed=all(x["beats_buy_hold"] and x["beats_cash"] for x in reports)
     print(json.dumps({"pair":"XBT/USD","candles":n,
         "start_utc":datetime.fromtimestamp(data[0][0],timezone.utc).isoformat(),
