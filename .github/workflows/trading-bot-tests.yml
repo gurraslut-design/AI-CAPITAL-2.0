@@ -78,12 +78,7 @@ jobs:
                   for rsi_min in (50, 55, 60):
                       bot.EMA_FAST, bot.EMA_SLOW = fast, slow
                       bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-                      # Existing backtest uses RSI > 50. For higher thresholds,
-                      # use a wrapper that rejects entries unless the RSI condition is met.
-                      # Keep the initial sweep comparable by testing only implemented settings.
-                      if rsi_min != 50:
-                          continue
-                      report, _ = bot.backtest(train, 1000.0, 0.002, 0.0)
+                      report, _ = bot.backtest(train, 1000.0, 0.002, 0.0, rsi_threshold=rsi_min)
                       candidates.append({
                           'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
                           'train_return_pct': report['total_return_pct'],
@@ -94,7 +89,7 @@ jobs:
               best = max(candidates, key=lambda x: x['train_return_pct'])
               bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
               bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = 0.01, 0.02
-              holdout, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
+              holdout, _ = bot.backtest(test, 1000.0, 0.002, 0.0, rsi_threshold=best['rsi_min'])
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
               baseline, _ = bot.backtest(test, 1000.0, 0.002, 0.0)
               print(json.dumps({
