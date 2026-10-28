@@ -8,6 +8,7 @@ on:
       - '.github/workflows/btc-long-history.yml'
       - 'research_btc_long_history.py'
       - 'research_btc_hourly_ml.py'
+      - 'research_btc_daytrade.py'
 permissions:
   contents: read
 jobs:
@@ -41,10 +42,13 @@ jobs:
               ("kraken_2026Q3.zip", "XBTUSD_1440.csv", "daily"),
               ("Kraken_OHLCVT_Full.zip", "XBTUSD_60.csv", "hourly"),
               ("kraken_2026Q3.zip", "XBTUSD_60.csv", "hourly"),
+              ("Kraken_OHLCVT_Full.zip", "XBTUSD_5.csv", "5m"),
+              ("kraken_2026Q3.zip", "XBTUSD_5.csv", "5m"),
           ]
           hourly_rows = {}
+          five_rows = {}
           for archive, target, timeframe in sources:
-              target_rows = rows if timeframe == "daily" else hourly_rows
+              target_rows = rows if timeframe == "daily" else hourly_rows if timeframe == "hourly" else five_rows
               with zipfile.ZipFile(archive) as zf:
                   names = [n for n in zf.namelist() if Path(n).name.upper() == target.upper()]
                   if not names:
@@ -74,8 +78,15 @@ jobs:
           with open("kraken_btc_hourly.csv", "w", newline="") as f:
               w = csv.writer(f); w.writerows(hourly)
           print(f"Prepared {len(hourly)} hourly BTC/USD candles from {hourly[0][0]} to {hourly[-1][0]}")
+          five = [five_rows[t] for t in sorted(five_rows)]
+          if len(five) < 100000: raise SystemExit(f"Not enough 5-minute candles: {len(five)}")
+          with open("kraken_btc_5m.csv", "w", newline="") as f:
+              w = csv.writer(f); w.writerows(five)
+          print(f"Prepared {len(five)} 5-minute BTC/USD candles from {five[0][0]} to {five[-1][0]}")
           PY
       - name: Run long-history daily baseline research
         run: python research_btc_long_history.py kraken_btc_daily.csv
       - name: Run cost-aware hourly ML walk-forward research
         run: python research_btc_hourly_ml.py kraken_btc_hourly.csv
+      - name: Run 5-minute day-trading strategy comparison
+        run: python research_btc_daytrade.py kraken_btc_5m.csv
