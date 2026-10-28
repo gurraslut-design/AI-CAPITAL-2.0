@@ -21,5 +21,25 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check bot CLI
         run: python trading_bot.py --help
-      - name: Test Kraken public market-data connection (paper only)
-        run: python trading_bot.py PAPER
+      - name: Test Kraken public market-data connection and save candles
+        run: |
+          python - <<'PY'
+          import csv, json, urllib.parse, urllib.request
+          url = 'https://api.kraken.com/0/public/OHLC?' + urllib.parse.urlencode({'pair':'XBTUSDT','interval':5})
+          req = urllib.request.Request(url, headers={'User-Agent':'AI-Capital-Lab-paper/1.0'})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              data = json.loads(response.read().decode('utf-8'))
+          if data.get('error'):
+              raise SystemExit('Kraken API error: ' + '; '.join(data['error']))
+          result = data['result']
+          key = next(k for k in result if k != 'last')
+          candles = result[key]
+          with open('kraken_recent.csv','w',newline='',encoding='utf-8') as f:
+              writer = csv.writer(f)
+              writer.writerow(['time','open','high','low','close','volume'])
+              for c in candles:
+                  writer.writerow([c[0],c[1],c[2],c[3],c[4],c[6]])
+          print(f'Kraken OK: received {len(candles)} five-minute candles for {key}.')
+          PY
+      - name: Run short-window historical backtest (paper only)
+        run: python trading_bot.py BACKTEST --csv kraken_recent.csv --balance 1000 --fee 0.008 --slippage 0
