@@ -207,6 +207,8 @@ jobs:
           PY
       - name: Research cost-aware hourly forecast with walk-forward holdouts (paper only)
         run: python research_cost_aware.py kraken_multi_month.csv
+      - name: Research low-frequency technical rules with chronological holdouts (paper only)
+        run: python research_low_frequency.py kraken_multi_month.csv
       - name: Compare fee assumptions on identical historical candles (paper only)
         run: |
           python - <<'PY'
