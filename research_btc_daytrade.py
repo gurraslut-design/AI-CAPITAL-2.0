@@ -73,13 +73,13 @@ def make_signals(close):
         "RSI mean reversion (25/55, max 3h)":mr,
     }
 
-def metrics(pos, returns, times, start, end, fee, slip, label):
-    p=np.asarray(pos[start:end],dtype=int)
-    r=np.asarray(returns[start:end],dtype=float)
-    ts=np.asarray(times[start:end],dtype=np.int64)
+def metrics(pos, returns, times, initial_balance, start_idx, end_idx, fee, slip, label):
+    p=np.asarray(pos[start_idx:end_idx],dtype=int)
+    r=np.asarray(returns[start_idx:end_idx],dtype=float)
+    ts=np.asarray(times[start_idx:end_idx],dtype=np.int64)
     if len(p)==0: return {}
     # Each signal is delayed one candle: position decided at close i applies to return i -> i+1.
-    equity=float(start); peak=equity; maxdd=0.; changes=0; entries=0; exits=0
+    equity=float(initial_balance); peak=equity; maxdd=0.; changes=0; entries=0; exits=0
     exposure=0; held_wins=0; prev=0; equity_curve=[]
     cost=fee+slip
     for target,ret in zip(p,r):
@@ -102,9 +102,9 @@ def metrics(pos, returns, times, start, end, fee, slip, label):
         changes += 1
     elapsed_days=max(1.,(ts[-1]-ts[0])/86400.)
     years=elapsed_days/365.25
-    cagr=((equity/start)**(1/years)-1)*100 if equity>0 and years>0 else -100.
+    cagr=((equity/initial_balance)**(1/years)-1)*100 if equity>0 and years>0 else -100.
     return {"strategy":label,"final_balance":round(equity,2),
-        "return_pct":round((equity/start-1)*100,2),"annualized_return_pct":round(cagr,2),
+        "return_pct":round((equity/initial_balance-1)*100,2),"annualized_return_pct":round(cagr,2),
         "max_drawdown_pct":round(maxdd*100,2),"entries":entries,"exits":exits,
         "position_changes":changes,"time_in_market_pct":round(exposure/max(1,len(p))*100,2),
         "profitable_held_candles_pct":round(held_wins/max(1,exposure)*100,2)}
