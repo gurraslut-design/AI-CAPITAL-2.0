@@ -46,31 +46,49 @@ def rsi(close, period=14):
 
 def make_signals(close):
     n=len(close)
-    e12=ema(close,12); e36=ema(close,36); e24=ema(close,24)
-    e96=ema(close,96)
+    e48=ema(close,48); e144=ema(close,144)
     r=rsi(close,14)
-    # Signals are formed after each candle closes; position is applied to the next return.
-    trend=((e12>e36)&(close>e96)).astype(int)
-    trend_exit=(e12<e36)|(close<e96)
-    trend[trend_exit]=0
-    # Short-horizon breakout, only when the medium trend is positive.
-    prior_high=np.full(n,np.nan)
-    for i in range(20,n): prior_high[i]=np.max(close[i-20:i])
-    breakout=((close>prior_high)&(close>e96)).astype(int)
-    # RSI mean reversion: enter after extreme oversold, exit on recovery or time/trend guard.
-    mr=np.zeros(n,dtype=int); active=False; held=0
-    for i in range(20,n):
-        if not active and r[i]<25 and close[i]>e96[i]*0.90:
+    # Use persistent position states to avoid entering/exiting every candle.
+    trend=np.zeros(n,dtype=int)
+    active=False
+    for i in range(1,n):
+        if not active and e48[i]>e144[i] and e48[i-1]<=e144[i-1]:
+            active=True
+        elif active and (e48[i]<e144[i] or close[i]<e144[i]*0.985):
+            active=False
+        trend[i]=int(active)
+
+    # 24-hour breakout, hold until price falls below a prior 8-hour low or trend filter.
+    breakout=np.zeros(n,dtype=int)
+    prior_high=np.full(n,np.nan); prior_low=np.full(n,np.nan)
+    for i in range(288,n):
+        prior_high[i]=np.max(close[i-288:i])
+    for i in range(96,n):
+        prior_low[i]=np.min(close[i-96:i])
+    active=False
+    for i in range(288,n):
+        if not active and close[i]>prior_high[i] and e48[i]>e144[i]:
+            active=True
+        elif active and (close[i]<prior_low[i] or e48[i]<e144[i]):
+            active=False
+        breakout[i]=int(active)
+
+    # Mean reversion with a cooldown: enter oversold only in a broad uptrend,
+    # exit at RSI recovery, a 12-bar time stop, or trend invalidation.
+    mr=np.zeros(n,dtype=int); active=False; held=0; cooldown=0
+    for i in range(144,n):
+        if cooldown>0: cooldown-=1
+        if not active and cooldown==0 and r[i]<25 and close[i]>e144[i]:
             active=True; held=0
         elif active:
             held+=1
-            if r[i]>55 or held>=36 or close[i]<e96[i]*0.90:
-                active=False
+            if r[i]>50 or held>=12 or close[i]<e144[i]*0.985:
+                active=False; cooldown=12
         mr[i]=int(active)
     return {
-        "EMA trend 12/36 + EMA96 filter":trend,
-        "20-bar breakout + EMA96 filter":breakout,
-        "RSI mean reversion (25/55, max 3h)":mr,
+        "EMA 48/144 cross with 1.5% trend stop":trend,
+        "24h breakout / 8h low exit":breakout,
+        "RSI oversold, uptrend-only, cooldown":mr,
     }
 
 def metrics(pos, returns, times, initial_balance, start_idx, end_idx, fee, slip, label):
@@ -119,8 +137,8 @@ def main():
     split=int(n*.70)
     reports=[]
     # Fixed, realistic cost scenarios; no parameter tuning on the held-out period.
-    for fee in (.002,.004,.008):
-        slip=.0005
+    for fee in (.001,.002,.004):
+        slip=.0002
         for name,signal in signals.items():
             # First signal is only applied on the next candle; the final signal cannot create a future return.
             delayed=np.roll(signal,1); delayed[0]=0; delayed[-1]=0
@@ -141,5 +159,5 @@ def main():
         "holdout_end_utc":datetime.fromtimestamp(int(t[-2]),timezone.utc).isoformat(),
         "training_fraction":0.70,"strategies_tested":len(signals),"results":reports,
         "promotion_passed":passed,
-        "methodology":"Fixed rules, first 70% historical candles used only as warm-up/training period; final 30% held out; signals from completed candle applied to following candle; fees and slippage charged on every position change; long/flat only; research only, no orders."},indent=2))
+        "methodology":"Fixed, selective position-state rules; first 70% historical candles used as warm-up/training period; final 30% held out; completed-candle signals applied to next candle; fees and slippage charged on every position change; long/flat only; research only, no orders."},indent=2))
 if __name__=="__main__": main()
