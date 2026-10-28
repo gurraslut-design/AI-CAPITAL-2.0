@@ -28,7 +28,9 @@ jobs:
           done
       - name: Download latest quarterly update
         run: curl -fL --retry 3 -o kraken_2026Q3.zip https://assets.kraken.com/marketing/institutions/Kraken_OHLCVT_2026Q3.zip
-      - name: Install ML research dependencies\n        run: python -m pip install --upgrade numpy scikit-learn\n      - name: Extract BTC daily and hourly candles and merge updates
+      - name: Install ML research dependencies
+        run: python -m pip install --upgrade numpy scikit-learn
+      - name: Extract BTC daily and hourly candles and merge updates
         run: |
           python - <<'PY'
           import csv, io, zipfile
