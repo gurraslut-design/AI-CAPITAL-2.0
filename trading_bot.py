@@ -114,7 +114,7 @@ def backtest(rows, starting_balance, fee, slippage):
                 gross = (exit_price - position["entry"]) * position["qty"]
                 exit_fee = exit_price * position["qty"] * fee
                 net = gross - exit_fee - position["entry_fee"]
-                balance += gross - exit_fee
+                balance += exit_price * position["qty"] - exit_fee
                 fees_total += exit_fee
                 trades.append({"entry_time": position["time"], "exit_time": row["time"], "entry": round(position["entry"], 8),
                                "exit": round(exit_price, 8), "net_pnl": round(net, 4), "reason": reason})
@@ -151,7 +151,7 @@ def backtest(rows, starting_balance, fee, slippage):
         gross = (exit_price - position["entry"]) * position["qty"]
         exit_fee = exit_price * position["qty"] * fee
         net = gross - exit_fee - position["entry_fee"]
-        balance += gross - exit_fee
+        balance += exit_price * position["qty"] - exit_fee
         fees_total += exit_fee
         trades.append({"entry_time": position["time"], "exit_time": row["time"], "entry": round(position["entry"], 8),
                        "exit": round(exit_price, 8), "net_pnl": round(net, 4), "reason": "end-of-data"})
