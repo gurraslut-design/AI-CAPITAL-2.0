@@ -152,6 +152,24 @@ def backtest(rows, starting_balance, fee, slippage):
                     fees_total += entry_fee
                     position = {"entry": entry, "stop": stop, "target": target, "qty": qty,
                                 "entry_fee": entry_fee, "time": row["time"]}
+                    # The entry candle can hit the stop/target too. Ignoring its
+                    # high/low would bias the backtest in our favour.
+                    entry_candle_exit, entry_candle_reason = None, None
+                    if row["low"] <= stop:
+                        entry_candle_exit, entry_candle_reason = stop * (1 - slippage), "stop"
+                    elif row["high"] >= target:
+                        entry_candle_exit, entry_candle_reason = target * (1 - slippage), "take-profit"
+                    if entry_candle_exit is not None:
+                        exit_fee = entry_candle_exit * qty * fee
+                        gross = (entry_candle_exit - entry) * qty
+                        net = gross - exit_fee - entry_fee
+                        balance += entry_candle_exit * qty - exit_fee
+                        fees_total += exit_fee
+                        trades.append({"entry_time": position["time"], "exit_time": row["time"],
+                                       "entry": round(entry, 8), "exit": round(entry_candle_exit, 8),
+                                       "net_pnl": round(net, 4), "reason": entry_candle_reason})
+                        position = None
+                        exited_this_candle = True
         if position:
             equity = balance + position["qty"] * row["close"]
         else:
