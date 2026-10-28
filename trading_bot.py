@@ -100,8 +100,8 @@ def calculate_position_qty(balance, entry, stop, fee):
 
 
 def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filter_period=0, entry_mode="cross"):
-    if entry_mode not in ("cross", "pullback", "breakout"):
-        raise ValueError("entry_mode must be cross, pullback, or breakout")
+    if entry_mode not in ("cross", "pullback", "breakout", "rsi_rebound", "ema_reclaim"):
+        raise ValueError("Unsupported entry_mode")
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
     trend = ema(closes, trend_filter_period) if trend_filter_period > 0 else None
@@ -149,6 +149,14 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filt
                 entry_signal = crossed_up
             elif entry_mode == "pullback":
                 entry_signal = pulled_back
+            elif entry_mode == "rsi_rebound":
+                # Mean-reversion entry: RSI crosses back above an oversold threshold.
+                entry_signal = (prev >= 0 and rsis[prev] is not None
+                                and rsis[prev] <= rsi_threshold and rsis[signal_i] > rsi_threshold)
+            elif entry_mode == "ema_reclaim":
+                # Price reclaims the fast EMA after closing below it; no future candles used.
+                entry_signal = (prev >= 0 and fast[prev] is not None
+                                and closes[prev] <= fast[prev] and closes[signal_i] > fast[signal_i])
             else:
                 # Compare with highs from prior candles only; do not include the signal candle.
                 lookback_start = max(0, signal_i - 20)
@@ -218,7 +226,7 @@ def backtest(rows, starting_balance, fee, slippage, rsi_threshold=50, trend_filt
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not gross_profit else "infinity"),
         "avg_net_pnl": round(sum(t["net_pnl"] for t in trades) / len(trades), 4) if trades else 0.0,
         "fee_per_side_pct": round(fee * 100, 3), "slippage_pct": round(slippage * 100, 3),
-        "strategy": f"Long only; {entry_mode} entry with EMA{EMA_FAST}/EMA{EMA_SLOW}, RSI14 > {rsi_threshold}; trend filter period {trend_filter_period}; 1% stop, 2% target; 1% balance risk; one position at a time.",
+        "strategy": f"Long only; {entry_mode} entry with EMA{EMA_FAST}/EMA{EMA_SLOW}, RSI14 threshold {rsi_threshold}; trend filter period {trend_filter_period}; stop {STOP_FRACTION:.1%}, target {TAKE_PROFIT_FRACTION:.1%}; 1% balance risk; one position at a time.",
         "caveat": "Historical simulation is not a prediction. OHLC candles cannot reveal exact intrabar order; stop is assumed first if stop and target both hit."
     }
     return report, trades
