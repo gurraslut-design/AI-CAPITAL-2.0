@@ -114,7 +114,7 @@ jobs:
               baseline_validation, _ = bot.backtest(validation, 1000.0, research_fee, 0.0)
               baseline_final, _ = bot.backtest(final_test, 1000.0, research_fee, 0.0)
               print(json.dumps({
-                  'note': 'Research only; first 60% selects among 486 variants, next 20% validates, final 20% is untouched chronological test. No live orders.',
+                  'note': 'Research only; first 60% selects among 486 variants, next 20% validates, final 20% is untouched chronological test. Promotion gate requires profitable validation and final test with PF > 1 and at least 20 trades each. No live orders.',
                   'candles': {'total': len(rows), 'train': len(train), 'validation': len(validation), 'final_test': len(final_test)},
                   'fee_per_side_pct': 0.8,
                   'baseline_holdout': {
@@ -145,6 +145,20 @@ jobs:
                       'trades': final_report['trades'],
                       'profit_factor': final_report['profit_factor'],
                       'max_drawdown_pct': final_report['max_drawdown_pct'],
+                  },
+                  'promotion_gate': {
+                      'passed': (
+                          validation_report['total_return_pct'] > 0
+                          and final_report['total_return_pct'] > 0
+                          and validation_report['profit_factor'] not in (None, 'infinity')
+                          and final_report['profit_factor'] not in (None, 'infinity')
+                          and validation_report['profit_factor'] > 1.0
+                          and final_report['profit_factor'] > 1.0
+                          and validation_report['trades'] >= 20
+                          and final_report['trades'] >= 20
+                      ),
+                      'rule': 'Do not promote to paper-forward testing unless validation and untouched final test are both profitable, profit factor > 1, and each has at least 20 trades.',
+                      'action_if_failed': 'Keep bot paper-only; continue research rather than selecting the least-bad losing variant.'
                   },
               }, indent=2))
           finally:
