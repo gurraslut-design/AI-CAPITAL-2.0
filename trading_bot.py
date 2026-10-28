@@ -88,6 +88,17 @@ def read_csv(path):
     return rows
 
 
+def calculate_position_qty(balance, entry, stop, fee):
+    """Size a long so stop loss plus estimated entry/exit fees risks at most 1% of balance."""
+    risk_cash = balance * RISK_FRACTION
+    risk_per_unit = (entry - stop) + entry * fee + stop * fee
+    if risk_per_unit <= 0 or entry <= 0:
+        return 0.0
+    qty_for_risk = risk_cash / risk_per_unit
+    qty_affordable = balance / (entry * (1 + fee))
+    return min(qty_for_risk, qty_affordable)
+
+
 def backtest(rows, starting_balance, fee, slippage):
     closes = [r["close"] for r in rows]
     fast, slow, rsis = ema(closes, EMA_FAST), ema(closes, EMA_SLOW), rsi(closes)
@@ -99,6 +110,7 @@ def backtest(rows, starting_balance, fee, slippage):
     position = None
     for i in range(1, len(rows)):
         row = rows[i]
+        exited_this_candle = False
         # Manage an open position using only this candle's OHLC. If both levels hit,
         # assume the stop was hit first (conservative; candle order is unknown).
         if position:
@@ -119,19 +131,21 @@ def backtest(rows, starting_balance, fee, slippage):
                 trades.append({"entry_time": position["time"], "exit_time": row["time"], "entry": round(position["entry"], 8),
                                "exit": round(exit_price, 8), "net_pnl": round(net, 4), "reason": reason})
                 position = None
+                exited_this_candle = True
         # Signal from the just-closed candle i-1; enter at current candle open.
+        # Never re-enter on a candle where an existing position exits intrabar:
+        # the exit was not knowable at that candle's open.
         signal_i = i - 1
-        if position is None and fast[signal_i] is not None and slow[signal_i] is not None and rsis[signal_i] is not None:
+        if position is None and not exited_this_candle and fast[signal_i] is not None and slow[signal_i] is not None and rsis[signal_i] is not None:
             prev = signal_i - 1
             crossed_up = prev >= 0 and fast[prev] is not None and slow[prev] is not None and fast[prev] <= slow[prev] and fast[signal_i] > slow[signal_i]
             if crossed_up and rsis[signal_i] > 50:
                 entry = row["open"] * (1 + slippage)
                 stop = entry * (1 - STOP_FRACTION)
                 target = entry * (1 + TAKE_PROFIT_FRACTION)
-                risk_cash = balance * RISK_FRACTION
-                qty = risk_cash / max(entry - stop, 1e-12)
-                # Account for entry fee and available cash; no leverage is used.
-                qty = min(qty, balance / (entry * (1 + fee)))
+                # Include both entry and stop-exit fees in the 1% risk budget.
+                # No leverage is used; available cash remains a hard limit.
+                qty = calculate_position_qty(balance, entry, stop, fee)
                 entry_fee = entry * qty * fee
                 if qty > 0 and entry * qty + entry_fee <= balance:
                     balance -= entry * qty + entry_fee
