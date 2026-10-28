@@ -40,6 +40,7 @@ class TradingBotTests(unittest.TestCase):
         self.assertGreaterEqual(report["fees_total"], 0)
         self.assertGreaterEqual(report["max_drawdown_pct"], 0)
         self.assertIsInstance(trades, list)
+        self.assertAlmostEqual(report["final_balance"], 1000.0 + sum(t["net_pnl"] for t in trades), delta=0.02)
         self.assertFalse(report.get("real_orders_enabled", False))
 
 
