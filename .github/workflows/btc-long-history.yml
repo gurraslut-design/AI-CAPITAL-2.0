@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/btc-long-history.yml'
       - 'research_btc_long_history.py'
+      - 'research_btc_hourly_ml.py'
 permissions:
   contents: read
 jobs:
@@ -26,17 +27,21 @@ jobs:
           done
       - name: Download latest quarterly update
         run: curl -fL --retry 3 -o kraken_2026Q3.zip https://assets.kraken.com/marketing/institutions/Kraken_OHLCVT_2026Q3.zip
-      - name: Extract only BTC daily candles and merge updates
+      - name: Install ML research dependencies\n        run: python -m pip install --upgrade numpy scikit-learn\n      - name: Extract BTC daily and hourly candles and merge updates
         run: |
           python - <<'PY'
           import csv, io, zipfile
           from pathlib import Path
           rows = {}
           sources = [
-              ("Kraken_OHLCVT_Full.zip", "XBTUSD_1440.csv"),
-              ("kraken_2026Q3.zip", "XBTUSD_1440.csv"),
+              ("Kraken_OHLCVT_Full.zip", "XBTUSD_1440.csv", "daily"),
+              ("kraken_2026Q3.zip", "XBTUSD_1440.csv", "daily"),
+              ("Kraken_OHLCVT_Full.zip", "XBTUSD_60.csv", "hourly"),
+              ("kraken_2026Q3.zip", "XBTUSD_60.csv", "hourly"),
           ]
-          for archive, target in sources:
+          hourly_rows = {}
+          for archive, target, timeframe in sources:
+              target_rows = rows if timeframe == "daily" else hourly_rows
               with zipfile.ZipFile(archive) as zf:
                   names = [n for n in zf.namelist() if Path(n).name.upper() == target.upper()]
                   if not names:
@@ -50,7 +55,7 @@ jobs:
                                   t = int(float(p[0]))
                                   vals = [float(x) for x in p[1:5]]
                                   if t > 0 and min(vals) > 0:
-                                      rows[t] = [t, *vals]
+                                      target_rows[t] = [t, *vals]
                               except ValueError:
                                   continue
               print(f"Read {archive}: matched {target}")
@@ -61,6 +66,13 @@ jobs:
               w = csv.writer(f)
               w.writerows(ordered)
           print(f"Prepared {len(ordered)} daily BTC/USD candles from {ordered[0][0]} to {ordered[-1][0]}")
+          hourly = [hourly_rows[t] for t in sorted(hourly_rows)]
+          if len(hourly) < 25000: raise SystemExit(f"Not enough hourly candles: {len(hourly)}")
+          with open("kraken_btc_hourly.csv", "w", newline="") as f:
+              w = csv.writer(f); w.writerows(hourly)
+          print(f"Prepared {len(hourly)} hourly BTC/USD candles from {hourly[0][0]} to {hourly[-1][0]}")
           PY
-      - name: Run long-history walk-forward research
+      - name: Run long-history daily baseline research
         run: python research_btc_long_history.py kraken_btc_daily.csv
+      - name: Run cost-aware hourly ML walk-forward research
+        run: python research_btc_hourly_ml.py kraken_btc_hourly.csv
