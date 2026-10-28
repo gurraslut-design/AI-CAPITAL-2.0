@@ -70,38 +70,66 @@ jobs:
           import json
           import trading_bot as bot
 
-          rows = bot.read_csv('kraken_multi_month.csv')
-          split = int(len(rows) * 0.60)
-          split2 = int(len(rows) * 0.80)
-          train, validation, final_test = rows[:split], rows[split:split2], rows[split2:]
+          base_rows = bot.read_csv('kraken_multi_month.csv')
+
+          def aggregate(rows, group_size):
+              out = []
+              usable = len(rows) - (len(rows) % group_size)
+              for offset in range(0, usable, group_size):
+                  chunk = rows[offset:offset + group_size]
+                  if len(chunk) != group_size:
+                      continue
+                  out.append({
+                      'time': chunk[-1]['time'],
+                      'open': chunk[0]['open'],
+                      'high': max(x['high'] for x in chunk),
+                      'low': min(x['low'] for x in chunk),
+                      'close': chunk[-1]['close'],
+                      'volume': sum(x.get('volume', 0.0) for x in chunk),
+                  })
+              return out
+
+          datasets = {
+              '5m': base_rows,
+              '15m': aggregate(base_rows, 3),
+              '1h': aggregate(base_rows, 12),
+          }
           original = (bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION)
           candidates = []
-          research_fee = 0.008  # Kraken Pro Tier 1 taker fee assumption per side; conservative
+          research_fee = 0.008  # fee per side; no leverage and no slippage in primary search
+          split_data = {}
           try:
-              for entry_mode in ("cross", "pullback", "breakout"):
-                  for fast, slow in ((10, 30), (20, 50), (30, 100)):
-                      for rsi_min in (50, 55, 60):
-                          for trend_period in (0, 100, 200):
-                              for stop_fraction in (0.01, 0.02):
-                                  for target_fraction in (0.03, 0.04, 0.06):
-                                      bot.EMA_FAST, bot.EMA_SLOW = fast, slow
-                                      bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = stop_fraction, target_fraction
-                                      report, _ = bot.backtest(
-                                          train, 1000.0, research_fee, 0.0,
-                                          rsi_threshold=rsi_min, trend_filter_period=trend_period,
-                                          entry_mode=entry_mode)
-                                      candidates.append({
-                                          'entry_mode': entry_mode,
-                                          'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
-                                          'trend_filter_period': trend_period,
-                                          'stop_pct': round(stop_fraction * 100, 2),
-                                          'target_pct': round(target_fraction * 100, 2),
-                                          'train_return_pct': report['total_return_pct'],
-                                          'train_profit_factor': report['profit_factor'],
-                                          'train_trades': report['trades'],
-                                      })
-              # Select only on first 60%; validation and final test remain unseen during selection.
+              for timeframe, rows in datasets.items():
+                  split = int(len(rows) * 0.60)
+                  split2 = int(len(rows) * 0.80)
+                  train, validation, final_test = rows[:split], rows[split:split2], rows[split2:]
+                  split_data[timeframe] = (train, validation, final_test)
+                  for entry_mode in ("cross", "pullback", "breakout"):
+                      for fast, slow in ((10, 30), (20, 50), (30, 100)):
+                          for rsi_min in (50, 55, 60):
+                              for trend_period in (0, 100, 200):
+                                  for stop_fraction in (0.01, 0.02):
+                                      for target_fraction in (0.03, 0.04, 0.06):
+                                          bot.EMA_FAST, bot.EMA_SLOW = fast, slow
+                                          bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = stop_fraction, target_fraction
+                                          report, _ = bot.backtest(
+                                              train, 1000.0, research_fee, 0.0,
+                                              rsi_threshold=rsi_min, trend_filter_period=trend_period,
+                                              entry_mode=entry_mode)
+                                          candidates.append({
+                                              'timeframe': timeframe,
+                                              'entry_mode': entry_mode,
+                                              'ema_fast': fast, 'ema_slow': slow, 'rsi_min': rsi_min,
+                                              'trend_filter_period': trend_period,
+                                              'stop_pct': round(stop_fraction * 100, 2),
+                                              'target_pct': round(target_fraction * 100, 2),
+                                              'train_return_pct': report['total_return_pct'],
+                                              'train_profit_factor': report['profit_factor'],
+                                              'train_trades': report['trades'],
+                                          })
+              # Selection uses training data only across 3 timeframes; validation/test remain unseen.
               best = max(candidates, key=lambda x: x['train_return_pct'])
+              train, validation, final_test = split_data[best['timeframe']]
               bot.EMA_FAST, bot.EMA_SLOW = best['ema_fast'], best['ema_slow']
               bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = best['stop_pct'] / 100, best['target_pct'] / 100
               validation_report, _ = bot.backtest(
@@ -112,54 +140,62 @@ jobs:
                   final_test, 1000.0, research_fee, 0.0,
                   rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'],
                   entry_mode=best['entry_mode'])
+              # Stress test the selected setup with 0.1% adverse slippage per side.
+              stress_validation, _ = bot.backtest(
+                  validation, 1000.0, research_fee, 0.001,
+                  rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'],
+                  entry_mode=best['entry_mode'])
+              stress_final, _ = bot.backtest(
+                  final_test, 1000.0, research_fee, 0.001,
+                  rsi_threshold=best['rsi_min'], trend_filter_period=best['trend_filter_period'],
+                  entry_mode=best['entry_mode'])
               bot.EMA_FAST, bot.EMA_SLOW, bot.STOP_FRACTION, bot.TAKE_PROFIT_FRACTION = original
-              baseline_validation, _ = bot.backtest(validation, 1000.0, research_fee, 0.0)
-              baseline_final, _ = bot.backtest(final_test, 1000.0, research_fee, 0.0)
+              base_train, base_validation, base_final = split_data['5m']
+              baseline_validation, _ = bot.backtest(base_validation, 1000.0, research_fee, 0.0)
+              baseline_final, _ = bot.backtest(base_final, 1000.0, research_fee, 0.0)
+              gate_passed = (
+                  validation_report['total_return_pct'] > 0
+                  and final_report['total_return_pct'] > 0
+                  and stress_validation['total_return_pct'] > 0
+                  and stress_final['total_return_pct'] > 0
+                  and validation_report['profit_factor'] not in (None, 'infinity')
+                  and final_report['profit_factor'] not in (None, 'infinity')
+                  and validation_report['profit_factor'] > 1.0
+                  and final_report['profit_factor'] > 1.0
+                  and validation_report['trades'] >= 20
+                  and final_report['trades'] >= 20
+              )
               print(json.dumps({
-                  'note': 'Research only; first 60% selects among 486 variants, next 20% validates, final 20% is untouched chronological test. Promotion gate requires profitable validation and final test with PF > 1 and at least 20 trades each. No live orders.',
-                  'candles': {'total': len(rows), 'train': len(train), 'validation': len(validation), 'final_test': len(final_test)},
+                  'note': 'Research only; selects among 1458 variants on first 60% of each of 5m/15m/1h datasets; next 20% validates and final 20% is untouched chronological test. Stress test adds 0.1% adverse slippage per side. No live orders.',
+                  'candles': {tf: {'total': len(rows), 'train': len(split_data[tf][0]), 'validation': len(split_data[tf][1]), 'final_test': len(split_data[tf][2])} for tf, rows in datasets.items()},
                   'fee_per_side_pct': 0.8,
-                  'baseline_holdout': {
-                      'ema_fast': 20, 'ema_slow': 50, 'rsi_min': 50, 'trend_filter_period': 0, 'stop_pct': 1.0, 'target_pct': 2.0,
+                  'baseline_5m_holdout': {
                       'validation_return_pct': baseline_validation['total_return_pct'],
-                      'validation_final_balance': baseline_validation['final_balance'],
                       'validation_trades': baseline_validation['trades'],
                       'validation_profit_factor': baseline_validation['profit_factor'],
-                      'validation_max_drawdown_pct': baseline_validation['max_drawdown_pct'],
                       'final_test_return_pct': baseline_final['total_return_pct'],
-                      'final_test_final_balance': baseline_final['final_balance'],
                       'final_test_trades': baseline_final['trades'],
                       'final_test_profit_factor': baseline_final['profit_factor'],
-                      'final_test_max_drawdown_pct': baseline_final['max_drawdown_pct'],
                   },
                   'training_candidates': candidates,
                   'selected_on_train_only': best,
                   'selected_candidate_validation': {
-                      'return_pct': validation_report['total_return_pct'],
-                      'final_balance': validation_report['final_balance'],
-                      'trades': validation_report['trades'],
-                      'profit_factor': validation_report['profit_factor'],
+                      'return_pct': validation_report['total_return_pct'], 'final_balance': validation_report['final_balance'],
+                      'trades': validation_report['trades'], 'profit_factor': validation_report['profit_factor'],
                       'max_drawdown_pct': validation_report['max_drawdown_pct'],
                   },
                   'selected_candidate_final_test': {
-                      'return_pct': final_report['total_return_pct'],
-                      'final_balance': final_report['final_balance'],
-                      'trades': final_report['trades'],
-                      'profit_factor': final_report['profit_factor'],
+                      'return_pct': final_report['total_return_pct'], 'final_balance': final_report['final_balance'],
+                      'trades': final_report['trades'], 'profit_factor': final_report['profit_factor'],
                       'max_drawdown_pct': final_report['max_drawdown_pct'],
                   },
+                  'stress_test_0_1pct_slippage_per_side': {
+                      'validation_return_pct': stress_validation['total_return_pct'],
+                      'final_test_return_pct': stress_final['total_return_pct'],
+                  },
                   'promotion_gate': {
-                      'passed': (
-                          validation_report['total_return_pct'] > 0
-                          and final_report['total_return_pct'] > 0
-                          and validation_report['profit_factor'] not in (None, 'infinity')
-                          and final_report['profit_factor'] not in (None, 'infinity')
-                          and validation_report['profit_factor'] > 1.0
-                          and final_report['profit_factor'] > 1.0
-                          and validation_report['trades'] >= 20
-                          and final_report['trades'] >= 20
-                      ),
-                      'rule': 'Do not promote to paper-forward testing unless validation and untouched final test are both profitable, profit factor > 1, and each has at least 20 trades.',
+                      'passed': gate_passed,
+                      'rule': 'Validation and untouched final test must both be profitable, PF > 1, at least 20 trades each, and remain profitable with 0.1% adverse slippage per side.',
                       'action_if_failed': 'Keep bot paper-only; continue research rather than selecting the least-bad losing variant.'
                   },
               }, indent=2))
